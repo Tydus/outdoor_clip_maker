@@ -1,3 +1,5 @@
+from __future__ import annotations # This is required for "forward declartion", see also https://stackoverflow.com/a/55344418
+
 import numpy as np
 from util import *
 
@@ -117,6 +119,7 @@ class PoiLayer(Layer):
         Layer.__init__(self, *args, **kwargs)
         self._msaa = msaa
         self._pois = set()
+        self._name_visibility = 0 # default
         
     def add_poi(self, poi: PoI) -> PoI:
         self._pois.add(poi)
@@ -126,6 +129,19 @@ class PoiLayer(Layer):
     def remove_poi(self, poi: PoI):
         self._pois.remove(poi)
         self._frame_cache = None
+        
+    def clear(self):
+        self._pois = set()
+        self._frame_cache = None
+
+    def set_name_visibility(self, visibility: str):
+        # So we can use 'self._name_visibility or poi.name_visibility' to control per poi if default(0) is set.
+        self._name_visibility = {
+            'all': 1,
+            'default': 0,
+            'none': -1,
+        }[visibility]
+        
         
     def render_next_frame(self) -> np.ndarray:
         ''' Retrieve next frame '''
@@ -144,7 +160,8 @@ class PoiLayer(Layer):
             i.icon.paste_onto(canvas, pt)
             
             # Draw name
-            canvas = draw_text(canvas, pt, i.name.split('\\n'), size=int(1 * self._msaa), width=2 * self._msaa, color=(1, 0, 0, 1))
+            if (self._name_visibility or i.name_visibility) > 0:
+                canvas = draw_text(canvas, pt, i.name.split('\\n'), size=int(1 * self._msaa), width=2 * self._msaa, color=(1, 0, 0, 1))
         
         if self._msaa > 1:
             canvas = cv2.resize(canvas, self.screen_size, interpolation=cv2.INTER_AREA)
@@ -154,11 +171,20 @@ class PoiLayer(Layer):
         return canvas
 
 class PathLayer(Layer):
-    def __init__(self, *args, line_width: int=16, msaa: int=8, **kwargs):
+    def __init__(self, *args,
+        line_width: int=4, line_color: Tuple[float, float, float, float]=(0.5, 0.5, 0.5, 0.8),
+        highlight_line_width:int=16, highlight_line_color: Tuple[float, float, float, float]=(0, 82/255., 145/255., 1),
+        msaa: int=8, **kwargs,
+    ):
         Layer.__init__(self, *args, **kwargs)
         self._msaa = msaa
         self._line_width = line_width
+        self._line_color = line_color
+        self._highlight_line_width = highlight_line_width
+        self._highlight_line_color = highlight_line_color
+        
         self._paths = set()
+        self._highlight_paths = set()
         
     def add_path(self, path: Path)-> Path:
         self._paths.add(path)
@@ -168,6 +194,14 @@ class PathLayer(Layer):
     def remove_path(self, path: Path):
         self._paths.remove(Path)
         self._frame_cache = None
+
+    def set_highlight(self, *paths: List[Path]):
+        self._highlight_paths = set(paths)
+        self._frame_cache = None
+        
+    def clear(self):
+        self._paths = set()
+        self._frame_cache = None
     
     def render_next_frame(self) -> np.ndarray:
         ''' Retrieve next frame '''
@@ -176,7 +210,8 @@ class PathLayer(Layer):
     
         canvas = np.zeros((self._msaa * self.screen_size[1], self._msaa * self.screen_size[0], 4), dtype='float32') # RGBA
         
-        for path in self._paths:
+        # Draw non-highlighted first.
+        for path in self._paths.difference(self._highlight_paths):
             
             pts = path.get_points(
                 self._zoom + bin(self._msaa)[2:].count('0'),
@@ -185,7 +220,21 @@ class PathLayer(Layer):
             ).reshape(-1, 1, 2)
 
             # 2nd arg of cv2.polylines is very weird... See also https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
-            canvas = cv2.polylines(canvas, [pts], 0, (0, 82/255., 145/255., 1), thickness=self._line_width * self._msaa, lineType=cv2.LINE_AA)
+            canvas = cv2.polylines(canvas, [pts], 0, self._line_color, thickness=self._line_width * self._msaa, lineType=cv2.LINE_AA)
+
+                    
+        # Draw highlighted last (on top of the others).
+        for path in self._highlight_paths:
+            
+            pts = path.get_points(
+                self._zoom + bin(self._msaa)[2:].count('0'),
+                self._center,
+                (self.screen_size[0] * self._msaa, self.screen_size[1] * self._msaa),
+            ).reshape(-1, 1, 2)
+
+            # 2nd arg of cv2.polylines is very weird... See also https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
+            canvas = cv2.polylines(canvas, [pts], 0, self._highlight_line_color, thickness=self._highlight_line_width * self._msaa, lineType=cv2.LINE_AA)
+
             
         if self._msaa > 1:
             canvas = cv2.resize(canvas, self.screen_size, interpolation=cv2.INTER_AREA)
@@ -199,14 +248,8 @@ class PathLayer(Layer):
 class MeLayer(Layer):
     ''' Display an `me' icon (person or transits like train, car, etc.) '''
     
-    icon_filenames = {
-        'car': 'assets/car.png',
-    }
-    icon_cache_filename = 'assets/_icon_cache.pkl'
-    try:
-        _icon_cache = pickle.load(open(icon_cache_filename, 'rb'))
-    except:
-        _icon_cache = {}
+    icon_cache_dir = 'assets/_icon_cache'
+    icon_filename_template = 'assets/%s.png'
     
     def __init__(self, *args, msaa: int=8, **kwargs):
         Layer.__init__(self, *args, **kwargs)
@@ -215,39 +258,28 @@ class MeLayer(Layer):
         self.icon = None # Set to none to hide icon.
         self._p1 = self._p2 = None
     
-    def set_me(self, me: Tuple[float, float], heading: float=0):
+    def set_me(self, me: Tuple[float, float], heading: float=0, flip: bool=False):
         self._me = me
-        self._heading = heading
+        self._heading = int(heading)
+        self._flip = flip
         self._frame_cache = None
     
     def set_icon(self, icon_name: str):
+        self._frame_cache = None
         if icon_name == None:
             self.icon = None
-        else:
-            self.icon = (icon_name, self._msaa // 2)
-            self._generate_icon_cache()
-            
-        self._frame_cache = None
+            return
+
+        scale = self._msaa // 4
+
+        self.icon = (icon_name, scale)
+
+        im = Image.open(MeLayer.icon_filename_template % icon_name).convert('RGBA')
+        self._icon_im = im.resize((im.size[0] * scale, im.size[1] * scale), Image.ANTIALIAS)
 
     def set_pt(self, p1, p2):
         self._p1 = p1
         self._p2 = p2
-        
-    def _generate_icon_cache(self):
-        if self.icon not in MeLayer._icon_cache:
-            print(f"{self.icon} is not in icon cache, generating...")
-            arr = ImageClip(
-                MeLayer.icon_filenames[self.icon[0]],
-                anchor=ImageAnchor.C,
-                zoom=self.icon[1],
-            ).array
-
-            MeLayer._icon_cache[self.icon] = dict([
-                (i, ImageClip(scipy.ndimage.interpolation.rotate(arr, angle=i), anchor=ImageAnchor.C))
-                for i in tqdm.trange(-180, 180)
-            ])
-            print("Done.")
-            pickle.dump(MeLayer._icon_cache, open(MeLayer.icon_cache_filename, 'wb'))
     
     def render_next_frame(self) -> np.ndarray:
         ''' Retrieve next frame '''
@@ -263,7 +295,24 @@ class MeLayer(Layer):
         )
         # Draw icon
         if self.icon != None:
-            MeLayer._icon_cache[self.icon][int(self._heading)].paste_onto(canvas, pt)
+            _path = os.path.join(MeLayer.icon_cache_dir, self.icon[0], str(self.icon[1]))
+            os.makedirs(_path, mode=0o755, exist_ok=True)
+            
+            _filename = os.path.join(_path, '%d.png' % self._heading)
+            
+            if os.path.isfile(_filename):
+                im = Image.open(_filename)
+            else:
+                im = self._icon_im.rotate(angle=self._heading, resample=Image.BILINEAR)
+                im.save(_filename)
+            
+            if self._flip:
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)
+            
+            # XXX: A hack here, I don't know why????
+            im = im.transpose(Image.FLIP_TOP_BOTTOM)
+
+            ImageClip(im, anchor=ImageAnchor.C).paste_onto(canvas, pt)
             
         # Debug
         if self._p1:
@@ -301,8 +350,8 @@ class ImageAbsoluteLayer(AbsoluteLayer):
         self._images = []
     
     def add_image(self, coord: Tuple[int, int], arr: np.ndarray, zindex: int=-1):
-        assert 0 <= coord[0] < screen_size[0]
-        assert 0 <= coord[1] < screen_size[1]
+        assert 0 <= coord[0] < self.screen_size[0]
+        assert 0 <= coord[1] < self.screen_size[1]
         
         coord = np.asarray(coord)
         
@@ -349,12 +398,48 @@ class ImageAbsoluteLayer(AbsoluteLayer):
 
 class HUDLayer(ImageAbsoluteLayer):
     ''' HUD Layer to display fixed format information. Currently only Road sign is supported. '''
+    def __init__(self, screen_size: Tuple[int, int], zoom: float):
+        ImageAbsoluteLayer.__init__(self, screen_size, zoom)
+        self._text = ''
+        self._frame_cache_2 = None
     
     def set_road_icons(self, *road_icons: List[np.ndarray]):
         self.clear()
         
-        x, y = 50, 50
+        x = int(0.025 * self.screen_size[0]) # 1920 => 48
+        y = int(0.05 * self.screen_size[1]) # 1080 => 54
+        
+        xmargin = int(0.01 * self.screen_size[0]) # 1920 => 19
+        
         for i in road_icons:
             self.add_image((x, y), i)
-            x += i.shape[1] + 20
+            x += i.shape[1] + xmargin
         
+    def set_hud_text(self, text: str):
+        self._text = text
+        self._frame_cache = None
+        self._frame_cache_2 = None
+        
+    def render_next_frame(self) -> np.ndarray:
+        # handle frame cache carefully.
+        # use a second layer cache.
+        
+        if self._frame_cache_2 is not None:
+            return self._frame_cache_2
+        
+        # call base method first.
+        canvas = ImageAbsoluteLayer.render_next_frame(self)
+        
+        # Revert frame count
+        self._frame -= 1
+        
+        if self._text:
+            x = int(0.900 * self.screen_size[0]) # 1920 => 1728
+            y = int(0.050 * self.screen_size[1]) # 1080 => 54
+            
+            # Draw text
+            canvas = draw_text(canvas, (x, y), self._text, size=1, width=2, color=(1, 0, 0, 1))
+        
+        self._frame += 1
+        self._frame_cache2 = canvas
+        return canvas

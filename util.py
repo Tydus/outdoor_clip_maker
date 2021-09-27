@@ -1,6 +1,5 @@
 from __future__ import annotations # This is required for "forward declartion", see also https://stackoverflow.com/a/55344418
 
-import numpy
 import math
 import cv2
 import os.path
@@ -54,28 +53,44 @@ class ImageAnchor(enum.Enum):
     SE = ( 1,  1)
     
 
+
 class ImageClip(object):
-    def __init__(self, filename_or_arr: Union[np.ndarray, str], anchor: ImageAnchor=ImageAnchor.NW, zoom: float=1.):
+    # TODO: fix type annotation
+    def __init__(self, filename_img_or_arr: object, anchor: ImageAnchor=ImageAnchor.NW, zoom: Union[float, Tuple[int, int], None]=None):
+        # Zoom:
+        # float => zoom rate
+        # Tuple[int, int] => zoom to maximum (w, h)
+        
         self._anchor = anchor
         
-        if type(filename_or_arr) == np.ndarray:
+        if type(filename_img_or_arr) == np.ndarray:
             # Reuse existing array (use "ImageClip(arr.copy())" if you need a copy)
-            self.array = filename_or_arr
+            # zoom will be ignored.
+            self.array = filename_img_or_arr
             return
         
-        im = Image.open(open(filename_or_arr, 'rb'))
-        if 'A' in im.mode:
-            im = im.convert('RGBA')
-        elif im.mode == 'P' and 'transparency' in im.info:
-            im = im.convert('RGBA')
+        if type(filename_img_or_arr) == str:
+            im = Image.open(filename_img_or_arr)
+            if 'A' in im.mode:
+                im = im.convert('RGBA')
+            elif im.mode == 'P' and 'transparency' in im.info:
+                im = im.convert('RGBA')
+            else:
+                im = im.convert('RGB')
         else:
-            im = im.convert('RGB')
+            im = filename_img_or_arr
 
-        self.array = numpy.asarray(im, dtype='float32')/255.
+        self.array = np.asarray(im, dtype='float32')/255.
+
+        if not zoom: return
+    
+        if type(zoom) == tuple:
+            w, h = zoom
+            w0, h0 = self.array.shape[:2][::-1]
             
-        if zoom != 1.:
-            self.array = cv2.resize(self.array, None, fx=zoom, fy=zoom, interpolation=cv2.INTER_AREA)
-            
+            zoom = min(w / w0, h / h0)
+    
+        self.array = cv2.resize(self.array, None, fx=zoom, fy=zoom, interpolation=cv2.INTER_LINEAR)
 
     def paste_onto(self, canvas: np.ndarray, coordinate: Tuple[int, int]):
         
@@ -117,15 +132,67 @@ def test_imgclip():
 
     Show(bg.array)
 
+def google_road_icon(name, scale=4):
+    
+    filename = 'assets/google/road/%s_%s.png' % (
+        name, min(scale, 4),
+    )
+    
+    if os.path.isfile(filename):
+        im = Image.open(filename)
+    else:
+        GOOGLE_ROAD_ICON_TEMPLATE = 'https://www.google.com/maps/vt/icon/name=assets/icons/road/%s-1-small.9.png&highlight=%s&color=ffffffff&psize=9&font_weight=bold?scale=%d&text=%s'
+        
+        shape, color = {
+            'E': ('rectangle_rounded', '6c9f43'),
+            'R': ('triangle_rounded', '3878c7'),
+            'P': ('hexagon_flat', '3878c7'),
+        }[name[0]]
+        
+        # Handel 'E20'
+        if name[0] != 'E': name = name[1:]
+        
+        url = GOOGLE_ROAD_ICON_TEMPLATE % (shape, color, min(scale, 4), name)
+
+        res = http.get(url, stream=True)
+        im = Image.open(res.raw).convert('RGBA')
+        
+        im.save(filename)
+        
+    arr = np.asarray(im, dtype='float32')/255.
+    
+    # handle scale > 4
+    if scale > 4:
+        arr = cv2.resize(arr, (0, 0), fx=scale / 4, fy=scale / 4)
+        
+    return ImageClip(arr, ImageAnchor.W)
+
+def test_google_road_icon():
+    return [
+        google_road_icon('E20'),
+        google_road_icon('R20'),
+        google_road_icon('P20'),
+    ]
+
+    
 def google_poi_icon(name, color1, color2, scale=4):
     #assert name in GOOGLE_POI_ICON_VALID_LIST
-
-    url = GOOGLE_POI_ICON_TEMPLATE % (name, color1, color2, min(scale, 4))
     
-    res = http.get(url, stream=True)
-    im = Image.open(res.raw).convert('RGBA')
+    filename = 'assets/google/poi/%s_%s_%s_%s.png' % (
+        name, color1, color2, min(scale, 4),
+    )
+    
+    if os.path.isfile(filename):
+        im = Image.open(filename)
+    else:
+        url = GOOGLE_POI_ICON_TEMPLATE % (name, color1, color2, min(scale, 4))
+
+        res = http.get(url, stream=True)
+        im = Image.open(res.raw).convert('RGBA')
         
-    arr = numpy.asarray(im, dtype='float32')/255.
+        im.save(filename)
+        
+    arr = np.asarray(im, dtype='float32')/255.
     
     # handle scale > 4
     if scale > 4:
@@ -307,26 +374,27 @@ def px2wgs(zoom: float, x_y: Tuple[int, int]) -> Tuple[float, float]:
 
 # Calculate center, zoom from bounding box corners.
 # WARNING: may break in high-latitude region.
-def get_bounding_box_center_zoom(bb: float, screen_size: Tuple[int, int]):
-    lt, rb = bb
+def bb2center_zoom(bb: tuple, screen_size: Tuple[int, int]):
+    p1, p2 = bb
 
     bb_center = (
-        (lt[0] + rb[0]) / 2,
-        (lt[1] + rb[1]) / 2,
+        (p1[0] + p2[0]) / 2,
+        (p1[1] + p2[1]) / 2,
     )
 
-    rlt = wgs2ratio(lt)
-    rrb = wgs2ratio(rb)
+    xp1, yp1 = wgs2ratio(p1)
+    xp2, yp2 = wgs2ratio(p2)
 
     # zoom = math.log(ratio * TILE_SIZE / px) / math.log(2)
 
     rdelta = max(
-        (rrb[0] - rlt[0]) * TILE_SIZE / screen_size[0],
-        (rrb[1] - rlt[1]) * TILE_SIZE / screen_size[1],
+        screen_size[0] / (abs(xp1 - xp2) * TILE_SIZE),
+        screen_size[1] / (abs(yp1 - yp2) * TILE_SIZE),
     )
 
     # Set a safe margin (make zoom smaller)
-    bb_zoom = math.log(rdelta * 0.9, base=2)
+    # Divide by DPI, to match Google's hi-DPI tile setting.
+    bb_zoom = math.log((rdelta * 1.2) / DPI, 2) # Why it's always smaller than expected???
 
     return bb_center, bb_zoom
 
@@ -449,6 +517,7 @@ class PoI(object):
     location: Tuple[float, float]
     name: str
     icon: ImageClip = field(default=DEFAULT_POI_ICON)
+    name_visibility: bool = field(default=True)
     
     def __hash__(self):
         lat = int((90  + self.location[0]) * 1e9)
@@ -556,6 +625,10 @@ class Path(object):
     
         p1s = np.asarray(self._mercator_ratios) * k  # (n, 2)
         return (p1s - p0 + canvas_size_half).astype('int')
+
+    
+    def reverse(self):
+        return Path(*self.vertices[::-1], icon=self.icon)
     
     @staticmethod
     def get_bounding_box(*paths: List[Path]) -> Tuple[Tuple[float, float], Tuple[float, float]]:
