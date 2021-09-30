@@ -88,6 +88,8 @@ class ImageClip(object):
             w, h = zoom
             w0, h0 = self.array.shape[:2][::-1]
             
+            if w == w0 and h == h0: return
+            
             zoom = min(w / w0, h / h0)
     
         self.array = cv2.resize(self.array, None, fx=zoom, fy=zoom, interpolation=cv2.INTER_LINEAR)
@@ -440,7 +442,9 @@ def alpha_composite(bg: np.ndarray, fg: np.ndarray) -> np.ndarray:
     assert len(bg.shape) == 3 and bg.shape[2] in [3, 4]
     assert fg.shape[:2] == bg.shape[:2]
     
-    if fg.shape[2] == 3: return fg
+    if fg.shape[2] == 3: 
+        a0 = np.ones((bg.shape[0], bg.shape[1], 1), dtype='float32')
+        return np.concatenate([fg, a0], axis=2)
     
     Cb, ab = bg[..., :3], bg[..., 3:]
     Ca, aa = fg[..., :3], fg[..., 3:]

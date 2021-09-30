@@ -18,16 +18,16 @@ class Animation(object):
             self._length = length
 
         self._frame = 0
-        self._movie = None
+        self._clip = None
         
-    def set_movie(self, movie: Layer):
-        self._movie = movie
+    def set_clip(self, clip: Layer):
+        self._clip = clip
         
         # Defer length setting until here because fps is TBD when __init__().
-        self._length = self._length or self._movie.fps * self._length_s
+        self._length = self._length or self._clip.fps * self._length_s
         
     def __iter__(self):
-        assert type(self._movie.canvas) == FlattenLayer
+        assert type(self._clip.canvas) == FlattenLayer
         self.prepare()
         return self
     
@@ -59,10 +59,10 @@ class PanZoomTo(Animation):
             
     def prepare(self):
         if self._target_bounding_box:
-            self._target_center, self._target_zoom = bb2center_zoom(self._target_bounding_box, self._movie.canvas.screen_size)
+            self._target_center, self._target_zoom = bb2center_zoom(self._target_bounding_box, self._clip.canvas.screen_size)
         
-        self._start_center = self._movie.canvas._center
-        self._start_zoom   = self._movie.canvas._zoom
+        self._start_center = self._clip.canvas._center
+        self._start_zoom   = self._clip.canvas._zoom
         
         if self._target_center:
             self._step_center = (
@@ -78,13 +78,13 @@ class PanZoomTo(Animation):
         frame = self._frame + 1 # 1 ~ n
         
         if self._target_center:
-            self._movie.canvas.set_center((
+            self._clip.canvas.set_center((
                 frame * self._step_center[0] + self._start_center[0],
                 frame * self._step_center[1] + self._start_center[1],
             ))
 
         if self._target_zoom:
-            self._movie.canvas.set_zoom(
+            self._clip.canvas.set_zoom(
                 frame * self._step_zoom + self._start_zoom,
             )
             
@@ -103,9 +103,9 @@ class MoveAlong(Animation):
         
         self._speed = self._path.total_length / self._length # m / f
 
-        self._melayer = self._movie.canvas.find_first_layer_by_type(MeLayer)
-        self._hudlayer = self._movie.canvas.find_first_layer_by_type(HUDLayer)
-        self._pathlayer = self._movie.canvas.find_first_layer_by_type(PathLayer)
+        self._melayer = self._clip.canvas.find_first_layer_by_type(MeLayer)
+        self._hudlayer = self._clip.canvas.find_first_layer_by_type(HUDLayer)
+        self._pathlayer = self._clip.canvas.find_first_layer_by_type(PathLayer)
     
     def next_frame(self):
         # TODO: check off-by-one.
@@ -115,7 +115,7 @@ class MoveAlong(Animation):
         path = self._path
         swp = path.smoothed_waypoints
         
-        self._movie.canvas.set_center(swp[frame])
+        self._clip.canvas.set_center(swp[frame])
         
         self._traveled_distance += self._speed
         
@@ -126,7 +126,7 @@ class MoveAlong(Animation):
         # Just an empirical formula.
         # z15=>256
         # z23=>1
-        step_width = 2 ** (23 - self._movie.canvas._zoom) # m
+        step_width = 2 ** (23 - self._clip.canvas._zoom) # m
         
         if self._dont_drift:
             p1 = path.get_target_coordinate(max(0, d - step_width))
@@ -168,9 +168,9 @@ class ShowImage(Animation):
         self.coord = coord
         
     def prepare(self):
-        self._imglayer = self._movie.canvas.find_first_layer_by_type(ImageAbsoluteLayer)
-        assert self.arr.shape[1] + self.coord[0] <= self._movie.screen_size[0]
-        assert self.arr.shape[0] + self.coord[1] <= self._movie.screen_size[1]
+        self._imglayer = self._clip.canvas.find_first_layer_by_type(ImageAbsoluteLayer)
+        assert self.arr.shape[1] + self.coord[0] <= self._clip.screen_size[0]
+        assert self.arr.shape[0] + self.coord[1] <= self._clip.screen_size[1]
 
     def next_frame(self):
         # Workaround: hide image on the last frame
@@ -179,14 +179,37 @@ class ShowImage(Animation):
         elif self._frame == 0:
             self._imglayer.add_image(self.coord, self.arr)
         
+            
+class ShowVideo(Animation):
+    def __init__(self, length: Union[int, str], video_dir: str, coord: Tuple[int, int]):
+        Animation.__init__(self, length)
+        
+        self.video_dir = video_dir
+        self._image_filenames = sorted([i for i in os.listdir(video_dir) if i.endswith('.bmp')])
+        self.coord = coord
+        
+    def prepare(self):
+        assert self._length == len(self._image_filenames), 'Video length should match animation length'
+                                
+        self._imglayer = self._clip.canvas.find_first_layer_by_type(ImageAbsoluteLayer)
+
+    def next_frame(self):
+        self._imglayer.clear()
+            
+        # Workaround: hide image on the last frame
+        if self._frame + 1 != self._length:
+            im = Image.open(self.video_dir + '/' + self._image_filenames[self._frame])
+            arr = np.asarray(im, dtype='float32')/255.
+            self._imglayer.add_image(self.coord, arr)
+        
 class CustomAni(Animation):
     ''' Custom Animation '''
     
-    def __init__(self, length: Union[int, str], prepare_cb: Callable[[Movie], None]=None, frame_cb: Callable[[Movie], None]=None):
+    def __init__(self, length: Union[int, str], prepare_cb: Callable[[Clip], None]=None, frame_cb: Callable[[Clip], None]=None):
         Animation.__init__(self, length)
-        self._prepare_cb = prepare_cb or (lambda movie: None)
-        self._frame_cb = frame_cb or (lambda movie: None)
+        self._prepare_cb = prepare_cb or (lambda clip: None)
+        self._frame_cb = frame_cb or (lambda clip: None)
         
-    def prepare(self): self._prepare_cb(self._movie)
+    def prepare(self): self._prepare_cb(self._clip)
         
-    def next_frame(self): self._frame_cb(self._movie)
+    def next_frame(self): self._frame_cb(self._clip)

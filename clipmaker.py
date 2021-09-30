@@ -1,6 +1,6 @@
 from __future__ import annotations # This is required for "forward declartion", see also https://stackoverflow.com/a/55344418
 
-import tqdm
+import tqdm.auto as tqdm
 from typing import Tuple, Dict, List
 import subprocess
 
@@ -8,7 +8,7 @@ from util import *
 from layers import *
 from animations import *
 
-class Movie(object):
+class Clip(object):
     def __init__(
         self, screen_size: Tuple[int, int], fps: int, output_filename: str,
         center: Tuple[float, float], zoom: float,
@@ -55,6 +55,7 @@ class Movie(object):
             'ffmpeg', '-y', '-framerate', str(self.fps),
             '-i', 'tmp/' + output_filename + '_%05d.bmp',
             '-vf', 'format=yuv420p',
+            '-crf', '31',
             output_filename,
         ], check=True)
         
@@ -68,8 +69,8 @@ class Movie(object):
         total_time = 0
         
         for k, v in animations:
-            # Set movie first so we have v._length available.
-            v.set_movie(self)
+            # Set clip first so we have v._length available.
+            v.set_clip(self)
             
             # Process different time format.
             if type(k) == int:
@@ -138,8 +139,8 @@ class Movie(object):
         assert queue == ongoing == [], 'queue=%s, ongoing=%s' % (queue, ongoing)
         
 __all__ = [
-    'Movie', 
-    'PanZoomTo', 'MoveAlong', 'ShowImage', 'CustomAni',
+    'Clip', 
+    'PanZoomTo', 'MoveAlong', 'ShowImage', 'ShowVideo', 'CustomAni',
     'PoI', 'Path',
     'POI_ICONS',
 ]

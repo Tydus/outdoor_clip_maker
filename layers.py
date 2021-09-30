@@ -386,7 +386,7 @@ class ImageAbsoluteLayer(AbsoluteLayer):
             lt = c[::-1]
             rb = np.minimum(lt + a.shape[:2], canvas.shape[:2])
             a_rb = rb - lt + 0
-             
+
             canvas[lt[0]:rb[0], lt[1]:rb[1], ...] = alpha_composite(
                 canvas[lt[0]:rb[0], lt[1]:rb[1], ...],
                 a[:a_rb[0], :a_rb[1], ...],

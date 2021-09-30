@@ -1,4 +1,4 @@
-from movie_maker import *
+from clipmaker import *
 from util import *
 from layers import *
 
@@ -34,7 +34,7 @@ def test_bbcenterzoom(screen_size=(1920, 1080)):
     bb = Path.get_bounding_box(Path(*V.values()))
     print(bb)
     
-    Movie(screen_size=(1920, 1080), fps=60, output_filename='test.mp4', center=V[r'Home'].location, zoom=15, pois=V, paths={}, animations=[
+    Clip(screen_size=(1920, 1080), fps=60, output_filename='test.mp4', center=V[r'Home'].location, zoom=15, pois=V, paths={}, animations=[
         (1, PanZoomTo(1, bounding_box=bb)), # single frame
     ], no_video=False)
 
@@ -44,7 +44,7 @@ def test_melayer():
         'Ship': E['Ship'],
     }
         
-    Movie(screen_size=(1920, 1080), fps=60, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois={}, paths=E2, animations=[
+    Clip(screen_size=(1920, 1080), fps=60, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois={}, paths=E2, animations=[
         (' 00:00', MoveAlong('5', E['Matsuyama_Port'])), # 65 km
         (' 00:02', PanZoomTo('2', zoom=8)),
         (' 00:05', MoveAlong('5', E['Ship'])), # 88 km
@@ -52,13 +52,13 @@ def test_melayer():
     ])
 
 def test_panzoom():
-    Movie(screen_size=(1920, 1080), fps=5, output_filename='test.mp4', center=V[r'Fairfield\nOsaka Namba'].location, zoom=12, pois=V, paths=E, animations=[
+    Clip(screen_size=(1920, 1080), fps=5, output_filename='test.mp4', center=V[r'Fairfield\nOsaka Namba'].location, zoom=12, pois=V, paths=E, animations=[
         ('+00:00', MoveAlong('10', E['Yonago_Conan'])), # 45 km
         #('+00:04', PanZoomTo('01', zoom=15.000)),
     ],no_video=True)
 
 def test_timeline():
-    Movie(screen_size=(1920, 1080), fps=10, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois=V, paths=E, animations=[
+    Clip(screen_size=(1920, 1080), fps=10, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois=V, paths=E, animations=[
         (' 00:00', MoveAlong('10', E['Yonago_Conan'])), # 45 km
         ('+00:00', PanZoomTo('02', zoom=12.000)),
         ('-00:02', PanZoomTo('02', zoom=15.000)),
@@ -78,17 +78,23 @@ def test_timeline():
         ('|00:00', PanZoomTo('10', )), # sleep 10s
         
         ('|00:00', PanZoomTo('02', bounding_box=Path.get_bounding_box(*E.values()))), # Zoom to aLL edges.
-        ('+00:00', CustomAni('00', prepare_cb=lambda movie: movie.canvas.find_first_layer_by_type(PathLayer).set_highlight(*E.values()))), # Highlight all edges.
-        ('+00:00', CustomAni('00', prepare_cb=lambda movie: movie.canvas.find_first_layer_by_type(PoiLayer).set_name_visibility('none'))), # Hide all poi names, but keep icons.
+        ('+00:00', CustomAni('00', prepare_cb=lambda clip: clip.canvas.find_first_layer_by_type(PathLayer).set_highlight(*E.values()))), # Highlight all edges.
+        ('+00:00', CustomAni('00', prepare_cb=lambda clip: clip.canvas.find_first_layer_by_type(PoiLayer).set_name_visibility('none'))), # Hide all poi names, but keep icons.
         ('|00:00', PanZoomTo('05', )), # sleep 5s
-        ('+00:00', CustomAni('00', prepare_cb=lambda movie: movie.canvas.find_first_layer_by_type(PoiLayer).clear())),
+        ('+00:00', CustomAni('00', prepare_cb=lambda clip: clip.canvas.find_first_layer_by_type(PoiLayer).clear())),
         
     ])
     
 def test_image():
-    Movie(screen_size=(1920, 1080), fps=10, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois=V, paths=E, animations=[
+    Clip(screen_size=(1920, 1080), fps=10, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois=V, paths=E, animations=[
         (' 00:00', MoveAlong('10', E['Yonago_Conan'])), # 45 km
         (' 00:03', ShowImage('5', ImageClip('assets/allv2/go/07-05-1.png', zoom=(1920, 1080)).array, (0, 0))),
+    ])
+    
+def test_video():
+    Clip(screen_size=(1920, 1080), fps=60, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois=V, paths=E, animations=[
+        (' 00:00', ShowVideo('10', 'assets/allv2/go/07-14-bridge', (0, 0))),
+        (' 00:03', MoveAlong('10', E['Yonago_Conan'])), # 45 km
     ])
     
 if __name__ == '__main__':
