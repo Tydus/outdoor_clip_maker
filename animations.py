@@ -36,12 +36,12 @@ class Animation(object):
         self._frame += 1
         if self._frame == self._length:
             raise StopIteration
-    
-    def prepare(self):
-        pass
-    
-    def next_frame(self):
-        raise NotImplementedError
+
+    def prepare(self): pass
+
+    def next_frame(self): raise NotImplementedError
+
+    def finalize(self): pass
 
 class PanZoomTo(Animation):
     def __init__(self, length: Union[int, str], center: Tuple[float, float]=None, zoom: float=None, bounding_box: tuple=None):
@@ -56,7 +56,7 @@ class PanZoomTo(Animation):
         else:
             assert bounding_box == None, 'bounding_box and center/zoom should be mutal exclusive.'
 
-            
+
     def prepare(self):
         if self._target_bounding_box:
             self._target_center, self._target_zoom = bb2center_zoom(self._target_bounding_box, self._clip.canvas.screen_size)
@@ -106,6 +106,10 @@ class MoveAlong(Animation):
         self._melayer = self._clip.canvas.find_first_layer_by_type(MeLayer)
         self._hudlayer = self._clip.canvas.find_first_layer_by_type(HUDLayer)
         self._pathlayer = self._clip.canvas.find_first_layer_by_type(PathLayer)
+        
+        self._melayer.set_icon(self._path.icon)
+        self._hudlayer.set_road_icons(*self._road_icons)
+        self._pathlayer.set_highlight(self._path)
     
     def next_frame(self):
         # TODO: check off-by-one.
@@ -147,19 +151,13 @@ class MoveAlong(Animation):
         self._melayer.set_me(path.get_target_coordinate(d), heading, self._flip)
         
         self._hudlayer.set_hud_text('%.2f / %.2f km' % (d / 1000, path.total_length / 1000))
-        
-        # Workaround: hide icon and HUD on the last frame
-        if self._frame + 1 == self._length:
-            self._melayer.set_icon(None)
-            self._hudlayer.set_road_icons()
-            self._hudlayer.set_hud_text('')
-            self._pathlayer.set_highlight()
-            self._melayer.set_pt(None, None)
-        elif self._frame == 0:
-            self._melayer.set_icon(self._path.icon)
-            self._hudlayer.set_road_icons(*self._road_icons)
-            self._pathlayer.set_highlight(self._path)
-            
+
+    def finalize(self):
+        self._melayer.set_icon(None)
+        self._hudlayer.set_road_icons()
+        self._hudlayer.set_hud_text('')
+        self._pathlayer.set_highlight()
+        self._melayer.set_pt(None, None)
             
 class ShowImage(Animation):
     def __init__(self, length: Union[int, str], arr: np.ndarray, coord: Tuple[int, int]):
@@ -171,14 +169,13 @@ class ShowImage(Animation):
         self._imglayer = self._clip.canvas.find_first_layer_by_type(ImageAbsoluteLayer)
         assert self.arr.shape[1] + self.coord[0] <= self._clip.screen_size[0]
         assert self.arr.shape[0] + self.coord[1] <= self._clip.screen_size[1]
+        self._imglayer.add_image(self.coord, self.arr)
 
     def next_frame(self):
-        # Workaround: hide image on the last frame
-        if self._frame + 1 == self._length:
-            self._imglayer.del_image(self.arr)
-        elif self._frame == 0:
-            self._imglayer.add_image(self.coord, self.arr)
+        pass
         
+    def finalize(self):
+        self._imglayer.del_image(self.arr)
             
 class ShowVideo(Animation):
     def __init__(self, length: Union[int, str], video_dir: str, coord: Tuple[int, int]):
@@ -190,26 +187,31 @@ class ShowVideo(Animation):
         
     def prepare(self):
         assert self._length == len(self._image_filenames), 'Video length should match animation length'
-                                
         self._imglayer = self._clip.canvas.find_first_layer_by_type(ImageAbsoluteLayer)
 
     def next_frame(self):
         self._imglayer.clear()
-            
-        # Workaround: hide image on the last frame
-        if self._frame + 1 != self._length:
-            im = Image.open(self.video_dir + '/' + self._image_filenames[self._frame])
-            arr = np.asarray(im, dtype='float32')/255.
-            self._imglayer.add_image(self.coord, arr)
+
+        im = Image.open(self.video_dir + '/' + self._image_filenames[self._frame])
+        arr = np.asarray(im, dtype='float32')/255.
+        self._imglayer.add_image(self.coord, arr)
+        
+    def finalize(self):
+        self._imglayer.clear()
         
 class CustomAni(Animation):
     ''' Custom Animation '''
-    
-    def __init__(self, length: Union[int, str], prepare_cb: Callable[[Clip], None]=None, frame_cb: Callable[[Clip], None]=None):
+    def __init__(self,
+        length: Union[int, str],
+        prepare_cb: Callable[[Clip], None]=None,
+        frame_cb: Callable[[Clip], None]=None,
+        finalize_cb: Callable[[Clip], None]=None,
+    ):
         Animation.__init__(self, length)
         self._prepare_cb = prepare_cb or (lambda clip: None)
         self._frame_cb = frame_cb or (lambda clip: None)
-        
+        self._finalize_cb = finalize_cb or (lambda clip: None)
+
     def prepare(self): self._prepare_cb(self._clip)
-        
-    def next_frame(self): self._frame_cb(self._clip)
+    def next_frame(self): self._frame_cb(self._clip)    
+    def finalize(self): self._finalize_cb(self._clip)

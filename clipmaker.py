@@ -81,10 +81,10 @@ class Clip(object):
                 if k[0] == '+': # '+00:01' means 1 second from the start time of the last animation.
                     t = current_time
                     k = k[1:]
-                elif k[0] == '|': # '|00:01' means 1 second from the finish time of the existing animations. 
+                elif k[0] == '|': # '|00:01' means 1 second from the finalize time of the existing animations. 
                     t = total_time
                     k = k[1:]
-                elif k[0] == '-': # '-00:01' means 1 second before the finish time of the existing animations.
+                elif k[0] == '-': # '-00:01' means 1 second before the finalize time of the existing animations.
                     t = total_time
                     k = k[1:]
                     sgn = -1
@@ -111,6 +111,7 @@ class Clip(object):
         
         queue = self._animation_queue
         ongoing = []
+        done = []
         
         for frame in tqdm.trange(self.total_length):
 
@@ -124,17 +125,20 @@ class Clip(object):
                     ongoing.append(ani)
             
             # Phase 2: fire every animation in the ongoing list and keep the unfinished ones.
-            new_ongoing = []
-            for a in ongoing:
+            old_ongoing, ongoing = ongoing, []
+            for a in old_ongoing:
                 try:
                     next(a)
-                    new_ongoing.append(a)
+                    ongoing.append(a)
                 except StopIteration:
-                    pass
-            ongoing = new_ongoing
+                    done.append(a)
             
             # Phase 3: render the frame!
             self.canvas.save_next_frame()
+            
+            # Phase 4: teardown all animations in the done list.
+            for a in done: a.finalize()
+            done = []
 
         assert queue == ongoing == [], 'queue=%s, ongoing=%s' % (queue, ongoing)
         
