@@ -83,7 +83,7 @@ def test_timeline():
         ('|00:00', PanZoomTo('05', )), # sleep 5s
         ('+00:00', CustomAni('00', prepare_cb=lambda clip: clip.canvas.find_first_layer_by_type(PoiLayer).clear())),
         
-    ])
+    ], keep_bmp=True)
     
 def test_image():
     Clip(screen_size=(1920, 1080), fps=10, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois=V, paths=E, animations=[

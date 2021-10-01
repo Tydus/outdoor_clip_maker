@@ -47,7 +47,8 @@ class Clip(object):
         
         subprocess.run(f'rm -f tmp/{output_filename}_*.bmp', shell=True, check=True)
         
-        self._run_till_complete()
+        self._render_frame_range(0, self.total_length)
+        #self._render_frame_range(self.total_length // 2, self.total_length)
         
         if no_video: return
     
@@ -106,14 +107,12 @@ class Clip(object):
         
         return ret
 
-    def _run_till_complete(self):
-        frame = 0
-        
+    def _render_frame_range(self, start_frame: int, total_frames: int):
         queue = self._animation_queue
         ongoing = []
         done = []
         
-        for frame in tqdm.trange(self.total_length):
+        for frame in tqdm.trange(total_frames):
 
             # Phase 1:
             # Check the queue and pop all animations which starts from the current frame to ongoing list.
@@ -134,13 +133,17 @@ class Clip(object):
                     done.append(a)
             
             # Phase 3: render the frame!
-            self.canvas.save_next_frame()
+            # Handle start frame here: "dry-run" if frame < start_frame (i.e. don't need to actually render it.)
+            if frame >= start_frame:
+                self.canvas.save_next_frame()
+            else:
+                self.canvas.skip_next_frame()
             
             # Phase 4: teardown all animations in the done list.
             for a in done: a.finalize()
             done = []
 
-        assert queue == ongoing == [], 'queue=%s, ongoing=%s' % (queue, ongoing)
+        #assert queue == ongoing == [], 'queue=%s, ongoing=%s' % (queue, ongoing)
         
 __all__ = [
     'Clip', 

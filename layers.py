@@ -67,7 +67,11 @@ class FlattenLayer(Layer):
             if type(i) == layer_type:
                 return i
         return None
-        
+    
+    def skip_next_frame(self):
+        ''' Skip rendering next frame, just increase frame count. '''
+        self._frame += 1
+    
     def render_next_frame(self) -> np.ndarray:
         self._frame += 1
         
