@@ -84,7 +84,7 @@ class FlattenLayer(Layer):
     
     def save_next_frame(self):
         arr = self.render_next_frame()
-        Image.fromarray((arr * 255).astype('uint8')).save(self._filename_pattern % self._frame)
+        Image.fromarray((arr * 255).astype('uint8')).save(self._filename_pattern % self._frame, compress_level=1)
     
 class BackgroundLayer(Layer):
 

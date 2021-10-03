@@ -93,7 +93,7 @@ def test_image():
     
 def test_video():
     Clip(screen_size=(1920, 1080), fps=60, output_filename='test.mp4', center=V[r'Home'].location, zoom=12, pois=V, paths=E, animations=[
-        (' 00:00', ShowVideo('10', 'assets/allv2/go/07-14-bridge', (0, 0))),
+        (' 00:00', ShowVideo('10', 'assets/allv2/go/07-14-bridge/60', (0, 0))),
         (' 00:03', MoveAlong('10', E['Yonago_Conan'])), # 45 km
     ])
     
